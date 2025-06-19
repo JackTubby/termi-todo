@@ -1,10 +1,11 @@
 import { Command } from 'commander'
 import inquirer from 'inquirer'
 import DatepickerPrompt from 'inquirer-datepicker-prompt'
-import { access, constants, existsSync, mkdirSync, writeFile } from 'fs'
+import { access, constants, existsSync, mkdirSync, writeFile, writeFileSync } from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import todoData from './data/todoData.json'
 import { TodoData } from './types/data.types.js'
+import { textToSpeech, displayDialog } from './mac-commands'
 
 inquirer.registerPrompt('datetime', DatepickerPrompt)
 
@@ -124,10 +125,33 @@ program
         .filter((i: TodoData) => {
           return i.createdAt.startsWith(date.split('T')[0])
         })
-        .map((i) => i.title)
+        .map((i) => {
+          return {
+            id: i.id,
+            title: i.title,
+          }
+        })
 
-      console.log('here: ', items)
-      // we will handle deletion here...
+      if (items.length === 0) {
+        console.log('No items found for the selected date.')
+        return
+      }
+
+      const { deleteItem } = await inquirer.prompt<{ deleteItem: string }>([
+        {
+          type: 'list',
+          name: 'deleteItem',
+          message: 'Select an item to delete:',
+          choices: items.map((item) => ({
+            name: item.title,
+            value: item.id,
+          })),
+        },
+      ])
+
+      const updatedItems = todoData.filter((i) => i.id != deleteItem)
+      writeFileSync(FILEPATH + FILENAME, JSON.stringify(updatedItems))
+      console.log(`Successfully deleted item ${deleteItem}`)
     } catch (err) {
       console.error(err)
     }
