@@ -157,4 +157,21 @@ program
     }
   })
 
-program.parse()
+// Test PM2 - replace with actual daemon functionality later
+program
+  .command('daemon')
+  .description('Run as background service')
+  .action(() => {
+    console.log('Starting termi-todo daemon...')
+
+    setInterval(() => {
+    }, 60000)
+
+    console.log('Daemon running - checking for reminders every minute')
+  })
+
+if (process.argv.length <= 2 && process.env.NODE_ENV !== 'production') {
+  program.help()
+} else {
+  program.parse()
+}
