@@ -1,27 +1,27 @@
 import { Command } from 'commander'
 import inquirer from 'inquirer'
 import DatepickerPrompt from 'inquirer-datepicker-prompt'
-import { access, constants, existsSync, mkdirSync, writeFile, writeFileSync } from 'fs'
+import { access, constants, existsSync, mkdirSync, promises, writeFile, writeFileSync } from 'fs'
 import { v4 as uuidv4 } from 'uuid'
-import todoData from './data/todoData.json'
 import { TodoData } from './types/data.types.js'
 import { textToSpeech, displayDialog } from './mac-commands'
+import path from 'path'
 
 inquirer.registerPrompt('datetime', DatepickerPrompt)
 
-const FILEPATH = './src/data/'
-const FILENAME = 'todoData.json'
+const DATAFILEPATH = path.join(process.cwd(), 'src', 'data', 'todo-items')
 
 const program = new Command()
 
 program.name('termi-todo').description('A simple CLI tool').version('1.0.0')
 
+// npm run cli create
 program
   .command('create')
   .description('Create a todo item')
   .action(async () => {
     try {
-      const { title } = await inquirer.prompt<{ title: string }>([
+      const { title } = await inquirer.prompt([
         {
           type: 'input',
           name: 'title',
@@ -30,7 +30,7 @@ program
         },
       ])
 
-      const { description } = await inquirer.prompt<{ description: string }>([
+      const { description } = await inquirer.prompt([
         {
           type: 'input',
           name: 'description',
@@ -39,40 +39,24 @@ program
         },
       ])
 
-      const transform = {
-        id: uuidv4(),
+      const id = uuidv4()
+      const dateDir = new Date().toISOString().split('T')[0]
+      const fileName = `${id}.json`
+
+      const directoryPath = path.join(DATAFILEPATH, dateDir)
+      const filePath = path.join(directoryPath, fileName)
+
+      const todo = {
+        id,
         title,
         description,
         createdAt: new Date().toISOString(),
       }
 
-      if (!existsSync(FILEPATH)) {
-        mkdirSync(FILEPATH, { recursive: true })
-      }
+      mkdirSync(directoryPath, { recursive: true })
 
-      access(`${FILEPATH}${FILENAME}`, constants.F_OK, (err) => {
-        if (err) {
-          writeFile(`${FILEPATH}${FILENAME}`, JSON.stringify([transform], null, 2), (err) => {
-            if (err) {
-              console.error('Error writing file:', err)
-            } else {
-              console.log('Todo item created successfully!')
-            }
-          })
-        } else {
-          import('fs/promises').then(async (fs) => {
-            try {
-              const data = await fs.readFile(`${FILEPATH}${FILENAME}`, 'utf-8')
-              const todos = JSON.parse(data)
-              todos.push(transform)
-              await fs.writeFile(`${FILEPATH}${FILENAME}`, JSON.stringify(todos, null, 2))
-              console.log('Todo item added successfully!')
-            } catch (error) {
-              console.error('Error updating todo file:', error)
-            }
-          })
-        }
-      })
+      writeFileSync(filePath, JSON.stringify(todo, null, 2))
+      console.log(`Todo item created`)
     } catch (err) {
       console.error(err)
     }
@@ -121,37 +105,48 @@ program
         date = when
       }
 
-      const items = todoData
-        .filter((i: TodoData) => {
-          return i.createdAt.startsWith(date.split('T')[0])
-        })
-        .map((i) => {
-          return {
-            id: i.id,
-            title: i.title,
-          }
-        })
-
-      if (items.length === 0) {
-        console.log('No items found for the selected date.')
+      const transformDate = new Date(date).toISOString().split('T')[0]
+      const directoryPath = path.join(DATAFILEPATH, transformDate)
+      const todoData: TodoData[] = []
+      if (existsSync(directoryPath)) {
+        const files = await promises.readdir(directoryPath)
+        for (const file of files) {
+          const filePath = path.join(directoryPath, file)
+          const data = await promises.readFile(filePath, 'utf-8')
+          const todoItem: TodoData = JSON.parse(data)
+          todoData.push(todoItem)
+        }
+      } else {
+        console.log(`No todo items found for the selected date: ${transformDate}`)
         return
       }
-
+      if (todoData.length === 0) {
+        console.log(`No todo items found for the selected date: ${transformDate}`)
+        return
+      }
       const { deleteItem } = await inquirer.prompt<{ deleteItem: string }>([
         {
           type: 'list',
           name: 'deleteItem',
           message: 'Select an item to delete:',
-          choices: items.map((item) => ({
+          choices: todoData.map((item) => ({
             name: item.title,
             value: item.id,
           })),
         },
       ])
-
-      const updatedItems = todoData.filter((i) => i.id != deleteItem)
-      writeFileSync(FILEPATH + FILENAME, JSON.stringify(updatedItems))
-      console.log(`Successfully deleted item ${deleteItem}`)
+      const filePath = path.join(directoryPath, `${deleteItem}.json`)
+      if (existsSync(filePath)) {
+        await promises.unlink(filePath)
+        console.log(`Successfully deleted item ${deleteItem}`)
+        const files = await promises.readdir(directoryPath)
+        if (files.length === 0) {
+          await promises.rmdir(directoryPath)
+          console.log(`Removed empty directory: ${directoryPath}`)
+        }
+      } else {
+        console.log(`Item with ID ${deleteItem} not found.`)
+      }
     } catch (err) {
       console.error(err)
     }
@@ -164,8 +159,7 @@ program
   .action(() => {
     console.log('Starting termi-todo daemon...')
 
-    setInterval(() => {
-    }, 60000)
+    setInterval(() => {}, 60000)
 
     console.log('Daemon running - checking for reminders every minute')
   })
